@@ -16,11 +16,30 @@ mod crypto {
     pub const SALT_LEN: usize = 16;
     const NONCE_LEN: usize = 12;
     const HEADER_LEN: usize = MAGIC.len() + SALT_LEN + NONCE_LEN;
+    const CHARSET: &[u8] =
+        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*-_=+?";
 
     pub fn random<const N: usize>() -> [u8; N] {
         let mut buf = [0u8; N];
         getrandom::getrandom(&mut buf).expect("OS random source unavailable");
         buf
+    }
+
+    pub fn generate_password(len: usize) -> String {
+        let limit = 256 - (256 % CHARSET.len());
+        let mut out = String::with_capacity(len);
+        while out.len() < len {
+            let buf: [u8; 32] = random();
+            for b in buf {
+                if out.len() == len {
+                    break;
+                }
+                if (b as usize) < limit {
+                    out.push(CHARSET[b as usize % CHARSET.len()] as char);
+                }
+            }
+        }
+        out
     }
 
     pub fn derive_key(password: &str, salt: &[u8]) -> Option<[u8; 32]> {
@@ -86,7 +105,7 @@ struct Vault {
     notes: Vec<Note>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct PasswordEntry {
     name: String,
     login: String,
@@ -94,7 +113,7 @@ struct PasswordEntry {
     info: String,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct Note {
     title: String,
     body: String,
@@ -122,6 +141,9 @@ struct MyApp {
     tab: Tab,
     new_pw: PasswordEntry,
     new_note: Note,
+    editing_pw: Option<usize>,
+    editing_note: Option<usize>,
+    show_new_pw: bool,
     revealed: Option<usize>,
 }
 
@@ -308,12 +330,20 @@ impl MyApp {
                 .hint_text("email or username")
                 .desired_width(width),
         );
-        ui.add(
-            egui::TextEdit::singleline(&mut self.new_pw.password)
-                .password(true)
-                .hint_text("password")
-                .desired_width(width),
-        );
+        ui.horizontal(|ui| {
+            let w = (ui.available_width() - 170.0).max(80.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.new_pw.password)
+                    .password(!self.show_new_pw)
+                    .hint_text("password")
+                    .desired_width(w),
+            );
+            if ui.button("Generate").clicked() {
+                self.new_pw.password = crypto::generate_password(20);
+                self.show_new_pw = true;
+            }
+            ui.checkbox(&mut self.show_new_pw, "Show");
+        });
         ui.add(
             egui::TextEdit::singleline(&mut self.new_pw.info)
                 .hint_text("info (optional)")
@@ -323,14 +353,32 @@ impl MyApp {
         let ready = !self.new_pw.name.trim().is_empty()
             && !self.new_pw.login.trim().is_empty()
             && !self.new_pw.password.is_empty();
-        if ui.add_enabled(ready, egui::Button::new("Add")).clicked() {
-            self.vault.passwords.push(std::mem::take(&mut self.new_pw));
-            self.save();
-        }
+        ui.horizontal(|ui| {
+            let label = if self.editing_pw.is_some() {
+                "Save"
+            } else {
+                "Add"
+            };
+            if ui.add_enabled(ready, egui::Button::new(label)).clicked() {
+                let entry = std::mem::take(&mut self.new_pw);
+                match self.editing_pw.take() {
+                    Some(i) if i < self.vault.passwords.len() => self.vault.passwords[i] = entry,
+                    _ => self.vault.passwords.push(entry),
+                }
+                self.show_new_pw = false;
+                self.save();
+            }
+            if self.editing_pw.is_some() && ui.button("Cancel").clicked() {
+                self.editing_pw = None;
+                self.new_pw = PasswordEntry::default();
+                self.show_new_pw = false;
+            }
+        });
 
         ui.separator();
 
         let mut delete = None;
+        let mut edit = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, e) in self.vault.passwords.iter().enumerate() {
                 ui.group(|ui| {
@@ -339,14 +387,17 @@ impl MyApp {
                     ui.label(format!("Login: {}", e.login));
 
                     let shown = self.revealed == Some(i);
-                    if shown {
-                        ui.monospace(&e.password);
-                    } else {
-                        ui.label("••••••••");
-                    }
-                    if !e.info.is_empty() {
-                        ui.label(&e.info);
-                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Password:");
+                        if shown {
+                            ui.monospace(&e.password);
+                        } else {
+                            ui.label("••••••••");
+                        }
+                        if !e.info.is_empty() {
+                            ui.label(&e.info);
+                        }
+                    });
 
                     ui.horizontal(|ui| {
                         if ui.button(if shown { "Hide" } else { "Show" }).clicked() {
@@ -354,6 +405,9 @@ impl MyApp {
                         }
                         if ui.button("Copy").clicked() {
                             ui.ctx().copy_text(e.password.clone());
+                        }
+                        if ui.button("Edit").clicked() {
+                            edit = Some(i);
                         }
                         if ui.button("Delete").clicked() {
                             delete = Some(i);
@@ -363,9 +417,16 @@ impl MyApp {
             }
         });
 
+        if let Some(i) = edit {
+            self.new_pw = self.vault.passwords[i].clone();
+            self.editing_pw = Some(i);
+            self.show_new_pw = false;
+        }
         if let Some(i) = delete {
             self.vault.passwords.remove(i);
             self.revealed = None;
+            self.editing_pw = None;
+            self.new_pw = PasswordEntry::default();
             self.save();
         }
     }
@@ -384,29 +445,56 @@ impl MyApp {
         );
 
         let ready = !self.new_note.title.trim().is_empty();
-        if ui.add_enabled(ready, egui::Button::new("Add")).clicked() {
-            self.vault.notes.push(std::mem::take(&mut self.new_note));
-            self.save();
-        }
+        ui.horizontal(|ui| {
+            let label = if self.editing_note.is_some() {
+                "Save"
+            } else {
+                "Add"
+            };
+            if ui.add_enabled(ready, egui::Button::new(label)).clicked() {
+                let note = std::mem::take(&mut self.new_note);
+                match self.editing_note.take() {
+                    Some(i) if i < self.vault.notes.len() => self.vault.notes[i] = note,
+                    _ => self.vault.notes.push(note),
+                }
+                self.save();
+            }
+            if self.editing_note.is_some() && ui.button("Cancel").clicked() {
+                self.editing_note = None;
+                self.new_note = Note::default();
+            }
+        });
 
         ui.separator();
 
         let mut delete = None;
+        let mut edit = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, n) in self.vault.notes.iter().enumerate() {
                 egui::CollapsingHeader::new(&n.title)
                     .id_salt(i)
                     .show(ui, |ui| {
                         ui.label(&n.body);
-                        if ui.button("Delete").clicked() {
-                            delete = Some(i);
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Edit").clicked() {
+                                edit = Some(i);
+                            }
+                            if ui.button("Delete").clicked() {
+                                delete = Some(i);
+                            }
+                        });
                     });
             }
         });
 
+        if let Some(i) = edit {
+            self.new_note = self.vault.notes[i].clone();
+            self.editing_note = Some(i);
+        }
         if let Some(i) = delete {
             self.vault.notes.remove(i);
+            self.editing_note = None;
+            self.new_note = Note::default();
             self.save();
         }
     }
