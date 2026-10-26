@@ -1,0 +1,15 @@
+[package]
+name = "pwd-man"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes-gcm = "0.10"
+argon2 = "0.5"
+eframe = "0.37.0"
+getrandom = "0.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[profile.dev.package."*"]
+opt-level = 3
