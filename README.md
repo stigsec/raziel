@@ -3,6 +3,7 @@ Rust based password manager
 
 # TODO
 - confirm deletion
+- custom vault path
 - change password
 - zeroize secrets
 - sorting and favorites
