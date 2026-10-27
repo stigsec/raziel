@@ -1,5 +1,5 @@
 [package]
-name = "pwd-man"
+name = "raziel"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,6 +10,7 @@ eframe = "0.37.0"
 getrandom = "0.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+zeroize = { version = "1.9.1", features = ["derive"] }
 
 [profile.dev.package."*"]
 opt-level = 3
