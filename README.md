@@ -257,7 +257,7 @@ The encrypted vault file is stored separately from the Rust source files. Its lo
 
 ## TODO
 - zeroize secrets
-- sorting and favorites
+- favorites
 - search
 
 ---
