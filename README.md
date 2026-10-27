@@ -12,6 +12,11 @@
 - **Password management:** Store, edit, reveal, and copy passwords, along with associated usernames, logins, and optional information.
 - **Password generator:** Generate random 20-character passwords using letters, numbers, and supported special characters.
 - **Private notes:** Create, edit, view, and delete notes.
+- **Search:** Filter passwords and notes by keyword or phrase.
+- **Favorites:** Mark passwords and notes as favorites to keep them at the top of the list.
+- **Delete confirmation:** Asks for confirmation before permanently deleting a password or note.
+- **Lock button:** Lock the vault at any time and return to the password screen.
+- **Secret zeroizing:** Overwrites the encryption key, typed passwords, and decrypted vault contents in memory when they are no longer needed.
 - **Master password change:** Re-encrypt the vault with a new encryption key and salt when changing the master password.
 - **Custom vault location:** Configure the vault file location through the `RAZIEL_VAULT` environment variable.
 - **Cross-platform:** Built with Rust and egui, with support for macOS, Linux, and Windows.
@@ -83,11 +88,29 @@ The Passwords tab allows you to:
 - Generate random passwords.
 - Reveal or hide stored passwords.
 - Copy passwords to the system clipboard.
-- Edit and delete existing entries.
+- Edit existing entries.
+- Delete entries after confirming the action.
+- Mark entries as favorites with the star button.
+- Search entries using the search field next to the **Add** button.
 
 ### Notes
 
 The Notes tab allows you to create, edit, view, and delete notes. Notes are stored inside the same encrypted vault as password entries.
+
+Notes can be marked as favorites and searched in the same way as passwords. Deleting a note requires confirmation.
+
+### Search and Favorites
+
+The search field filters the current tab as you type. The search is case-insensitive.
+
+- Passwords are matched by name, login, and optional information. The password itself is not searched.
+- Notes are matched by title and body.
+
+Favorites are shown at the top of the list. While a search is active, favorites receive no priority and results appear in their normal order.
+
+### Locking
+
+Select **Lock** in the top-right corner of the vault to lock it. Raziel discards the encryption key and the decrypted vault from memory and returns to the password screen. Enter the master password again to reopen the vault.
 
 ### Settings
 
@@ -224,7 +247,9 @@ Keep backups of your encrypted vault in a secure location.
 
 5. **Password Changes:** Changing the master password generates a new salt and key, then re-encrypts the vault using the new credentials.
 
-6. **Persistence:** Changes to passwords and notes are saved to the encrypted vault file.
+6. **Persistence:** Changes to passwords, notes, and favorites are saved to the encrypted vault file immediately, using a temporary file and an atomic replace so an interrupted write does not damage the existing vault.
+
+7. **Memory Handling:** The encryption key, the typed master password fields, the decrypted vault, and the intermediate serialized data are overwritten (zeroized) when they are dropped. Locking the vault wipes them immediately.
 
 ---
 
@@ -234,6 +259,8 @@ Keep backups of your encrypted vault in a secure location.
 - AES-256-GCM provides encryption and authentication, allowing tampering to be detected.
 - Each encryption operation uses a fresh nonce.
 - The vault is encrypted at rest and decrypted in application memory while unlocked.
+- Secrets are zeroized on a best-effort basis. The UI toolkit, the operating system, and the clipboard may keep their own copies of text, so zeroizing reduces how long secrets remain in memory but cannot guarantee their removal.
+- Use **Lock** when you step away from the computer. A locked vault holds neither the key nor the decrypted contents.
 - There is no built-in master password recovery mechanism.
 - Passwords copied to the clipboard may remain available to other applications until the clipboard contents are replaced or cleared.
 - Keep backups of the vault file. Losing or damaging it may result in permanent loss of its contents.
@@ -252,13 +279,6 @@ raziel/
 ```
 
 The encrypted vault file is stored separately from the Rust source files. Its location is controlled by `RAZIEL_VAULT` or the default `vault.enc` path.
-
----
-
-## TODO
-- zeroize secrets
-- favorites
-- search
 
 ---
 
